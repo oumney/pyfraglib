@@ -240,9 +240,10 @@ def create_argparser() -> argparse.ArgumentParser:
         help="Input FRAG file to be analyzed. Must not be combined with "
         "`--frag-dir'.")
     argparser_scores.add_argument(
-        "-b", "--bed-file", type=str, dest="bed_file", required=True,
+        "-b", "--bed-file", nargs="+", dest="bed_file", required=True,
         help="A correctly formatted BED file (see docs) that provides "
-        "genomic coordinates for score calculation.")
+        "genomic coordinates for score calculation. Can also provide " \
+        "more than one file if each region file is large.")
     argparser_scores.add_argument(
         "--hg38", action="store_true", dest="is_hg38",
         default=False, help="If set, hg38 will be assumed for the analyses. "
@@ -461,7 +462,7 @@ def scores(out_dir: str, args: argparse.Namespace) -> None:
     """
     frag_file: Final[str] = args.frag_file
     frag_dir: Final[str] = args.frag_dir
-    bed_file: Final[str] = args.bed_file
+    bed_file: Final[str | list [str]] = args.bed_file
     gc_correct: Final[bool] = args.gc_correct
 
     is_hg38: Final[bool] = args.is_hg38
@@ -476,7 +477,9 @@ def scores(out_dir: str, args: argparse.Namespace) -> None:
     if len(frag_files) == 0:
         fail("no bam files found; file extension `.frag' is required", logger)
 
-    regions: pysam.TabixFile = pysam.TabixFile(bed_file)
+    logger.info(f"regions to be analysed: {bed_file}")
+    if type(bed_file) is str:
+        regions: pysam.TabixFile = pysam.TabixFile(bed_file)
     col_names: list[str] = [
         "sample_name",
         "shannon_3p", "simpson_3p", "shannon_5p", "simpson_5p",
@@ -500,9 +503,24 @@ def scores(out_dir: str, args: argparse.Namespace) -> None:
         simpson_5p, simpson_3p = motif_diversity(fragments, name, "simpson", gc_correct=gc_correct)
 
         logger.info("calculating windowed protection score")
-        wps_df: pd.DataFrame = windowed_protection_score(fragments, regions,
-                                                         genome=genome, gc_correct=gc_correct)
+        if type(bed_file) is str:
+            wps_df: pd.DataFrame = windowed_protection_score(fragments, regions,
+                                                            genome=genome, gc_correct=gc_correct)
+        else:
+            wps_dataframes = []
+            for regions_sub in bed_file:
+                regions_sub: pysam.TabixFile = pysam.TabixFile(regions_sub)
+                wps_df: pd.DataFrame = windowed_protection_score(
+                    fragments,
+                    regions_sub,
+                    genome=genome,
+                    gc_correct=gc_correct
+                )
+                wps_dataframes.append(wps_df)
+            wps_df = pd.concat(wps_dataframes)
+            wps_df = wps_df.reset_index(drop=True)
 
+        logger.info("calculating region metrics")
         wps_metrics: pd.DataFrame = wps_region_metrics(wps_df)
         outpath = f"wps_metrics_{name}.csv"
         if gc_correct:
