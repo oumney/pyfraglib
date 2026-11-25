@@ -260,9 +260,9 @@ def log_stats(
             num_frags, num_bogus_frags,
             round(100*num_bogus_frags/num_frags, 3),
             num_mut_frags,
-            round(100*num_mut_frags/num_frags, 3)),
+            round(100*num_mut_frags/num_frags, 3),
             gc_correct,
-    )
+        ))
 
     outpath = f"{name}_frag_stats.json"
     if gc_correct:
